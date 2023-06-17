@@ -11,7 +11,8 @@ from datetime import datetime
 import threading 
 import time
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from textblob import TextBlob
+from deep_translator import GoogleTranslator
+import pyautogui
 
 #Connection a la base de donne Nysql
 connection = pymysql.connect(host='localhost',user='root',password='',db='facebookagent')
@@ -197,7 +198,11 @@ def bot_work(app_id,app_secret,user_short_token,automatique_message):
         )
 
     except requests.exceptions.Timeout as e:
+        st.markdown('''<h2 style='text-align: left; color: #1ed760;'>Une erreur est survenue lors de l'execution du bot veuillez verifier la console pour plus de taille sur erreur \n Elle est generalement due a un probleme avec le user short code pense a le change et verifier votre connexion internet</h2>''',unsafe_allow_html=True)
+        st.markdown('''<h1 style='text-align: left; color: #1ed760;'>Application vas etre reinitialiser dans 3 seconds veuillez verifier les informations avent de relance le bot Merc..</h1>''',unsafe_allow_html=True)
         logging.error("TimeoutError", e)
+        time.sleep(3)
+        pyautogui.hotkey("ctrl","F5")
 
     else:
 
@@ -205,49 +210,50 @@ def bot_work(app_id,app_secret,user_short_token,automatique_message):
             response.raise_for_status()
 
         except requests.exceptions.HTTPError as e:
+            st.markdown('''<h2 style='text-align: left; color: #1ed760;'>Une erreur est survenue lors de l'execution du bot veuillez verifier la console pour plus de taille sur erreur \n Elle est generalement due a un probleme avec le user short code pense a le change et verifier votre connexion internet</h2>''',unsafe_allow_html=True)
+            st.markdown('''<h1 style='text-align: left; color: #1ed760;'>Application vas etre reinitialiser dans 3 seconds veuillez verifier les informations avent de relance le bot Merc..</h1>''',unsafe_allow_html=True)
             logging.error("HTTPError", e)
+            time.sleep(3)
+            pyautogui.hotkey("ctrl","F5")
 
         else:
-            response_json = response.json()
-            logging.info(response_json)
-            user_long_token = response_json["access_token"]
-            graph = facebook.GraphAPI(access_token=user_long_token, version="3.1")
-            pages_data = graph.get_object("/me/accounts")
-            permanent_page_token = pages_data["data"][0]["access_token"]
-            page_id = pages_data["data"][0]["id"]
-            sql_select_Query = "select page.ID_page  from page where page.ID_page = '" + page_id + "'"
-            cursor.execute(sql_select_Query)
-            graph = facebook.GraphAPI(access_token=permanent_page_token, version="3.1")
-            if cursor.rowcount == 0:
-                infos = graph.get_object(id=page_id, fields="category")
-                default_info = graph.get_object(id=page_id)
-                some_info = graph.get_object(id=page_id, fields='about, website')
-                insert_page(page_id,default_info['name'],some_info['about'],infos['category'])
-            
-            print("FFFFFFFFFFF : ", permanent_page_token)
-            posts = graph.get_object(id=f'{page_id}/posts')
-            for post in posts['data']:
-                post_id = post['id']
-                sql_select_Query = "select post.ID_post, post.post_message from post INNER JOIN page ON post.FK_ID_page = page.ID_page WHERE page.ID_page = '" + page_id  + "' and post.ID_post  = '" + post_id + "'"
+            try:
+                response_json = response.json()
+                logging.info(response_json)
+                user_long_token = response_json["access_token"]
+                graph = facebook.GraphAPI(access_token=user_long_token, version="3.1")
+                pages_data = graph.get_object("/me/accounts")
+                permanent_page_token = pages_data["data"][0]["access_token"]
+                page_id = pages_data["data"][0]["id"]
+                sql_select_Query = "select page.ID_page  from page where page.ID_page = '" + page_id + "'"
                 cursor.execute(sql_select_Query)
+                graph = facebook.GraphAPI(access_token=permanent_page_token, version="3.1")
                 if cursor.rowcount == 0:
-                    if 'message' in post:
-                        comments = graph.get_object(id=f'{post_id}/comments')
-                        insert_post(post_id,'message',post['message'],post['created_time'],page_id)
-                    else:
-                        if 'story' in post:
-                            comments = graph.get_object(id=f'{post_id}/comments')
-                            insert_post(post_id,'story',post['story'],post['created_time'],page_id)
+                    infos = graph.get_object(id=page_id, fields="category")
+                    default_info = graph.get_object(id=page_id)
+                    some_info = graph.get_object(id=page_id, fields='about, website')
+                    insert_page(page_id,default_info['name'],some_info['about'],infos['category'])
+                
+                posts = graph.get_object(id=f'{page_id}/posts')
+                for post in posts['data']:
+                    post_id = post['id']
+                    sql_select_Query = "select post.ID_post, post.post_message from post INNER JOIN page ON post.FK_ID_page = page.ID_page WHERE page.ID_page = '" + page_id  + "' and post.ID_post  = '" + post_id + "'"
+                    cursor.execute(sql_select_Query)
+                    comments = graph.get_object(id=f'{post_id}/comments')
+                    if cursor.rowcount == 0:
+                        if 'message' in post:
+                            
+                            insert_post(post_id,'message',post['message'],post['created_time'],page_id)
+                        else:
+                            if 'story' in post:
+                                insert_post(post_id,'story',post['story'],post['created_time'],page_id)
                     for comment in comments['data']:
                         comment_id =  comment['id']
                         sql_select_Query = "select post.ID_post, post.post_message from post INNER JOIN page ON  post.FK_ID_page = page.ID_page INNER JOIN commentaire ON commentaire.FK_ID_post = post.ID_post WHERE page.ID_page = '" + page_id  + "' and post.ID_post  = '" + post_id + "' and commentaire.ID_commentaire = '" + comment_id + "'"
                         cursor.execute(sql_select_Query)
                         if cursor.rowcount == 0:
-                            comment_message = comment['message']
+                            comment_message = GoogleTranslator(source='auto', target='en').translate(comment['message'])
                             comment_created_time = comment['created_time']
-                            blob = TextBlob(comment_message)
-                            if blob.detect_language() != "en" : 
-                                comment_message = blob.translate(to='en')
                             isQ = IsQuestion()
                             if isQ.predict_question(comment_message) :
                                 insert_commentaire(comment_id,'question', comment_message, comment_created_time,post_id)
@@ -262,7 +268,12 @@ def bot_work(app_id,app_secret,user_short_token,automatique_message):
                                     insert_commentaire(comment_id,'negative', comment_message, comment_created_time,post_id)
                                 elif sentiment_scores(comment_message) == "neutral":
                                     insert_commentaire(comment_id,'neutral', comment_message, comment_created_time,post_id)
-
+            except:
+                    st.markdown('''<h2 style='text-align: left; color: #1ed760;'>Une erreur est survenue lors de l'execution du bot veuillez verifier la console pour plus de taille sur erreur \n Elle est generalement due a un probleme avec le user short code pense a le change et verifier votre connexion internet</h2>''',unsafe_allow_html=True)
+                    st.markdown('''<h1 style='text-align: left; color: #1ed760;'>Application vas etre reinitialiser dans 3 seconds veuillez verifier les informations avent de relance le bot Merc..</h1>''',unsafe_allow_html=True)
+                    logging.error("Information Error", "Check App id, App secret and ")
+                    time.sleep(3)
+                    pyautogui.hotkey("ctrl","F5")
 
 def run():
     st.title("Facebook Intelligent Agent Bot")
@@ -318,7 +329,7 @@ def run():
 
     st.header("***Launch or Stop Bot***")
 
-    timerexecusion = st.number_input("Duree en Minute avant recusion du bot", min_value=10)
+    timerexecusion = st.number_input("Duree en Minute avant rexecusion du bot", min_value=1)
     process_btn = st.button('START BOT') 
     if process_btn:
         if app_id == "":
@@ -329,9 +340,22 @@ def run():
             st.markdown('''<h4 style='text-align: left; color: red;'>User Shork Token is empty''',unsafe_allow_html=True)
         if app_id != "" and app_secret != "" and user_short_token != "":
             st.markdown('''<h4 style='text-align: left; color: #1ed760;'>Bot start correctly 🚀 Time : ''' + str(timerexecusion) + ''' Minute </h4>''',unsafe_allow_html=True)
-            Myshudeler = RepeatedTimer(timerexecusion*60,bot_work(app_id,app_secret,user_short_token,automatique_message))
+            try:
+                Myshudeler = RepeatedTimer(timerexecusion*60,bot_work,app_id,app_secret,user_short_token,automatique_message)
+            except:
+                st.markdown('''<h2 style='text-align: left; color: #1ed760;'>Une erreur est survenue lors de l'execution du bot veuillez verifier la console pour plus de taille sur erreur \n Elle est generalement due a un probleme avec le user short code pense a le change et verifier votre connexion internet</h2>''',unsafe_allow_html=True)
+                st.markdown('''<h1 style='text-align: left; color: #1ed760;'>Application vas etre reinitialiser dans 3 seconds veuillez verifier les informations avent de relance le bot Merc..</h1>''',unsafe_allow_html=True)
+                logging.error("Information Error", "Check App id, App secret and")
+                time.sleep(3)
+                pyautogui.hotkey("ctrl","F5")
             process_btn_ph = st.button('STOP BOT')
             if process_btn_ph:
+                Myshudeler.stop()
+                Myshudeler.stop()
+                Myshudeler.stop()
+                Myshudeler.stop()
+                Myshudeler.stop()
+                Myshudeler.stop()
                 Myshudeler.stop()
 
 
@@ -339,9 +363,6 @@ def run():
 
 
     st.header("***Page Database Details***")
-
-#    post_id = st.selectbox('Choise the post',('Male', 'Female'))
-
     datasetpage = {}
     sql_select_Query = "select page.ID_page, page.nom  from page"
     cursor.execute(sql_select_Query)
@@ -359,8 +380,20 @@ def run():
             for row in records:
                 datasetposts[row[0]] = row[1]
             post_id = st.selectbox("Choice a post", list(datasetposts.keys()), format_func=datasetposts.get)
+            comment_type = st.selectbox('Choice a comment type',('question', 'positive', 'negative'))
+            sql_select_Query = "select commentaire.commentaire_message from post INNER JOIN page ON  post.FK_ID_page = page.ID_page INNER JOIN commentaire ON commentaire.FK_ID_post = post.ID_post WHERE page.ID_page = '" + page_id  + "' and post.ID_post  = '" + post_id + "' and commentaire.commentaire_type = '" + comment_type + "'"
+            cursor.execute(sql_select_Query)
+            datasetcommentaire = list()
+            if cursor.rowcount > 0:
+                records = cursor.fetchall()
+                for row in records:
+                    datasetcommentaire.append(row[0])
+                st.write("<br>".join(datasetcommentaire), unsafe_allow_html=True)
+            else:
+                st.markdown('''<h4 style='text-align: left; color: #1ed760;'>Aucun commentaire disponible pour ce post en base de donne pour le moment </h4>''',unsafe_allow_html=True)
+
         else :
-            st.markdown('''<h4 style='text-align: left; color: #1ed760;'>Aucune commentaire pour ce post pour le moment </h4>''',unsafe_allow_html=True)
+            st.markdown('''<h4 style='text-align: left; color: #1ed760;'>Aucun post disponible pour cette page en base de donne pour le moment </h4>''',unsafe_allow_html=True)
 
     else:
         st.markdown('''<h4 style='text-align: left; color: #1ed760;'>Aucune page disponible en base de donnee pour le moment </h4>''',unsafe_allow_html=True)
